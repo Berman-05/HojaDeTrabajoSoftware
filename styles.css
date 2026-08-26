@@ -1,0 +1,79 @@
+:root {
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --error: #ef4444;
+  --success: #22c55e;
+  --border: #cbd5e1;
+}
+
+* { box-sizing: border-box; 
+    margin: 0; padding: 0; 
+    font-family: system-ui, 
+    -apple-system, sans-serif; }
+
+body { background-color: var(--bg); 
+    color: var(--text); display: flex; 
+    min-height: 100vh; align-items: 
+    center; justify-content: center; 
+    padding: 1rem; }
+.container { width: 100%; 
+    max-width: 480px; }
+
+.card { background: var(--surface); 
+    padding: 2rem; 
+    border-radius: 12px; 
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+
+h2 { margin-bottom: 1.5rem; 
+    text-align: center; }
+
+.form-group { margin-bottom: 1.25rem; 
+    display: flex; 
+    flex-direction: column; }
+
+.form-row { display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 1rem; }
+
+label { font-size: 0.875rem; 
+    font-weight: 600; 
+    margin-bottom: 0.5rem; }
+
+input { padding: 0.75rem;
+     border: 1px solid var(--border); 
+     border-radius: 6px; 
+     font-size: 1rem; outline: none; 
+     transition: border-color 0.2s; }
+
+input:focus { border-color: var(--primary); }
+
+.error-message { color: var(--error); 
+    font-size: 0.75rem; margin-top: 0.25rem;
+    min-height: 1rem; }
+
+button { width: 100%; 
+    padding: 0.75rem; 
+    background-color: var(--primary); 
+    color: white; 
+    border: none; 
+    border-radius: 6px; 
+    font-size: 1rem; 
+    font-weight: 600; 
+    cursor: pointer; 
+    transition: background-color 0.2s; }
+
+button:hover { background-color: var(--primary-hover); }
+
+button:disabled { opacity: 0.6; 
+    cursor: not-allowed; }
+
+.status-message { margin-top: 1rem; 
+    text-align: center; 
+    font-size: 0.875rem; }
+
+.status-message.error { color: var(--error); }
+
+.status-message.success { color: var(--success); }
