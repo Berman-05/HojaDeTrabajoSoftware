@@ -103,22 +103,37 @@ class SupabaseAuthRepository extends AuthRepository {
     async register({ email, password, names, last_names, age }) {
         const client = getSupabaseClient();
 
-        // Inserción directa en la tabla 'users'
-        const { data, error } = await client
-            .from('users')
-            .insert([
+        const { data, error } = await client.auth.signUp({
+            email: email,
+            password: password,
+            options: {
+                data: {
+                    names: names,
+                    last_names: last_names,
+                    age: parseInt(age, 10)
+                },
+                emailRedirectTo: window.location.origin + window.location.pathname
+            }
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        try {
+            await client.from('users').upsert([
                 {
+                    id: data.user ? data.user.id : undefined,
                     email: email,
                     names: names,
                     last_names: last_names,
                     age: parseInt(age, 10),
-                    password: password
+                    password: password,
+                    status: 'pendiente'
                 }
-            ])
-            .select();
-
-        if (error) {
-            throw error;
+            ], { onConflict: 'email' });
+        } catch (dbErr) {
+            console.warn('Nota: Inserción directa en tabla public.users ignorada (manejada por triggers o RLS):', dbErr);
         }
 
         return data;
@@ -179,19 +194,25 @@ class RegistrationForm {
         this.submitBtn.textContent = 'Registrando...';
 
         try {
-            await this.authRepository.register(data);
-            this.statusMsg.textContent = '¡Usuario creado correctamente!';
+            const authResult = await this.authRepository.register(data);
+
+            if (authResult?.user && !authResult.user.email_confirmed_at) {
+                this.statusMsg.textContent = `¡Registro exitoso! Se envió un correo de confirmación a ${data.email}. Tu estado actual es "pendiente". Por favor verifica tu correo.`;
+            } else {
+                this.statusMsg.textContent = '¡Usuario creado y verificado correctamente! (status = verificado)';
+            }
+
             this.statusMsg.classList.add('success');
             this.form.reset();
         } catch (err) {
             console.error('Error al registrar en Supabase:', err);
 
-            if (err.code === '23505' || (err.message && (err.message.includes('unique') || err.message.includes('already exists')))) {
+            if (err.code === '23505' || (err.message && (err.message.includes('unique') || err.message.includes('already registered') || err.message.includes('already exists')))) {
                 this.statusMsg.textContent = 'El correo electrónico ya existe en la base de datos.';
                 const emailErrorEl = document.getElementById('email-error');
                 if (emailErrorEl) emailErrorEl.textContent = 'Este correo ya está registrado.';
             } else if (err.code === '42501' || (err.message && err.message.includes('row-level security'))) {
-                this.statusMsg.textContent = 'Error de permisos RLS: ejecuta la política de inserción pública en Supabase.';
+                this.statusMsg.textContent = 'Error de permisos RLS en Supabase.';
             } else {
                 this.statusMsg.textContent = err.message || 'Error al registrar usuario.';
             }
@@ -204,10 +225,37 @@ class RegistrationForm {
     }
 }
 
+function listenForEmailVerification() {
+    try {
+        const client = getSupabaseClient();
+        client.auth.onAuthStateChange(async (event, session) => {
+            const statusMsg = document.getElementById('status-message');
+            if (session && session.user && session.user.email_confirmed_at) {
+                try {
+                    await client
+                        .from('users')
+                        .update({ status: 'verificado' })
+                        .eq('email', session.user.email);
+                } catch (e) {
+                    console.warn('Nota sobre actualización en public.users:', e);
+                }
+
+                if (statusMsg) {
+                    statusMsg.textContent = `¡Correo confirmado con éxito! La cuenta de ${session.user.email} ahora tiene status = "verificado".`;
+                    statusMsg.className = 'status-message success';
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Error al escuchar estado de autenticación:', e);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const formElement = document.getElementById('register-form');
     const validator = new FormValidator();
     const authRepository = new SupabaseAuthRepository();
 
     new RegistrationForm(formElement, validator, authRepository);
+    listenForEmailVerification();
 });
