@@ -1,6 +1,11 @@
 const SUPABASE_URL = 'https://eotxudwqkkuuvqcwfwae.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_SHrtbjoYz8UG8jjyafY0yQ_n_VOZHCC';
 
+// Credenciales EmailJS
+const EMAILJS_SERVICE_ID = 'service_hvy79hk';
+const EMAILJS_TEMPLATE_ID = 'template_lbbppyk';
+const EMAILJS_PUBLIC_KEY = 'EUdymDDXovlpF4AkZ';
+
 let supabaseClient = null;
 function getSupabaseClient() {
     if (!supabaseClient) {
@@ -12,7 +17,7 @@ function getSupabaseClient() {
     return supabaseClient;
 }
 
-
+// VALIDACIONES 
 class ValidationRule {
     validate(value) { return { isValid: true, message: '' }; }
 }
@@ -105,7 +110,53 @@ class FormValidator {
     }
 }
 
+// SERVICIO DE CORREO 
+class EmailService {
+    async sendNotification(userData) {
+        throw new Error("Método 'sendNotification' debe ser implementado.");
+    }
+}
 
+class EmailJSService extends EmailService {
+    constructor(serviceId, templateId, publicKey) {
+        super();
+        this.serviceId = serviceId;
+        this.templateId = templateId;
+        this.publicKey = publicKey;
+    }
+
+    async sendNotification({ email, names, last_names }) {
+        const basePath = window.location.pathname.replace('index.html', '');
+        const confirmationUrl = `${window.location.origin}${basePath}verify.html?email=${encodeURIComponent(email)}`;
+
+        const payload = {
+            service_id: this.serviceId,
+            template_id: this.templateId,
+            user_id: this.publicKey,
+            template_params: {
+                to_email: email,
+                user_name: `${names} ${last_names}`,
+                verification_link: confirmationUrl,
+                reply_to: email
+            }
+        };
+
+        const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Error en EmailJS: ${errorText}`);
+        }
+
+        return true;
+    }
+}
+
+// REPOSITORIO DE DATOS 
 class AuthRepository {
     async register(userData) {
         throw new Error("Método 'register' debe ser implementado.");
@@ -124,8 +175,7 @@ class SupabaseAuthRepository extends AuthRepository {
                     names: names,
                     last_names: last_names,
                     age: parseInt(age, 10)
-                },
-                emailRedirectTo: window.location.origin + window.location.pathname
+                }
             }
         });
 
@@ -134,9 +184,8 @@ class SupabaseAuthRepository extends AuthRepository {
         }
 
         try {
-            await client.from('users').upsert([
+            await client.from('users').insert([
                 {
-                    id: data.user ? data.user.id : undefined,
                     email: email,
                     names: names,
                     last_names: last_names,
@@ -144,20 +193,22 @@ class SupabaseAuthRepository extends AuthRepository {
                     password: password,
                     status: 'pendiente'
                 }
-            ], { onConflict: 'email' });
+            ]);
         } catch (dbErr) {
-            console.warn('Nota: Inserción directa en tabla public.users ignorada (manejada por triggers o RLS):', dbErr);
+            console.warn('Inserción en public.users gestionada o ignorada:', dbErr);
         }
 
         return data;
     }
 }
 
+// CONTROLADOR DEL FORMULARIO 
 class RegistrationForm {
-    constructor(formElement, validator, authRepository) {
+    constructor(formElement, validator, authRepository, emailService) {
         this.form = formElement;
         this.validator = validator;
         this.authRepository = authRepository;
+        this.emailService = emailService;
         this.submitBtn = document.getElementById('submit-btn');
         this.statusMsg = document.getElementById('status-message');
 
@@ -207,18 +258,20 @@ class RegistrationForm {
         this.submitBtn.textContent = 'Registrando...';
 
         try {
-            const authResult = await this.authRepository.register(data);
+            await this.authRepository.register(data);
 
-            if (authResult?.user && !authResult.user.email_confirmed_at) {
-                this.statusMsg.textContent = `¡Registro exitoso! Se envió un correo de confirmación a ${data.email}. Tu estado actual es "pendiente". Por favor verifica tu correo.`;
-            } else {
-                this.statusMsg.textContent = '¡Usuario creado y verificado correctamente! (status = verificado)';
+            try {
+                await this.emailService.sendNotification(data);
+                this.statusMsg.textContent = `¡Registro iniciado! Se envió un correo a ${data.email} con el enlace para verificar tu cuenta.`;
+            } catch (mailErr) {
+                console.warn('Error al enviar con EmailJS:', mailErr);
+                this.statusMsg.textContent = 'Usuario registrado, pero ocurrió un problema enviando el correo.';
             }
 
             this.statusMsg.classList.add('success');
             this.form.reset();
         } catch (err) {
-            console.error('Error al registrar en Supabase:', err);
+            console.error('Error al registrar:', err);
 
             if (err.code === '23505' || (err.message && (err.message.includes('unique') || err.message.includes('already registered') || err.message.includes('already exists')))) {
                 this.statusMsg.textContent = 'El correo electrónico ya existe en la base de datos.';
@@ -238,41 +291,20 @@ class RegistrationForm {
     }
 }
 
-function listenForEmailVerification() {
-    try {
-        const client = getSupabaseClient();
-        client.auth.onAuthStateChange(async (event, session) => {
-            const statusMsg = document.getElementById('status-message');
-            if (session && session.user && session.user.email_confirmed_at) {
-                try {
-                    await client
-                        .from('users')
-                        .update({ status: 'verificado' })
-                        .eq('email', session.user.email);
-                } catch (e) {
-                    console.warn('Nota sobre actualización en public.users:', e);
-                }
-
-                if (statusMsg) {
-                    statusMsg.textContent = `¡Correo confirmado con éxito! La cuenta de ${session.user.email} ahora tiene status = "verificado".`;
-                    statusMsg.className = 'status-message success';
-                }
-            }
-        });
-    } catch (e) {
-        console.error('Error al escuchar estado de autenticación:', e);
-    }
-}
-
+// INICIALIZACIÓN
 document.addEventListener('DOMContentLoaded', () => {
     const formElement = document.getElementById('register-form');
     const validator = new FormValidator();
     const authRepository = new SupabaseAuthRepository();
+    const emailService = new EmailJSService(
+        EMAILJS_SERVICE_ID,
+        EMAILJS_TEMPLATE_ID,
+        EMAILJS_PUBLIC_KEY
+    );
 
-    new RegistrationForm(formElement, validator, authRepository);
-    listenForEmailVerification();
+    new RegistrationForm(formElement, validator, authRepository, emailService);
 
-    // Lógica para el botón de mostrar contraseña
+    // Toggle de contraseña
     const togglePasswordBtn = document.getElementById('toggle-password');
     const passwordInput = document.getElementById('password');
 
