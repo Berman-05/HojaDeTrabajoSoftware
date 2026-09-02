@@ -96,3 +96,65 @@ button:disabled { opacity: 0.6;
     background-color: #f0fdf4;
     border: 1px solid #86efac;
 }
+
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-wrapper input {
+    width: 100%;
+    padding-right: 2.5rem;
+}
+
+.toggle-password {
+    position: absolute;
+    right: 0.5rem;
+    background: transparent;
+    border: none;
+    width: auto;
+    padding: 0;
+    font-size: 1.25rem;
+    cursor: pointer;
+    color: var(--text);
+    opacity: 0.6;
+}
+
+.toggle-password:hover {
+    background: transparent;
+    opacity: 1;
+}
+
+.confirm-card {
+  text-align: center;
+  padding: 2.5rem;
+}
+
+.confirm-card .icon {
+  font-size: 3.5rem;
+  margin-bottom: 1rem;
+}
+
+.confirm-card p {
+  color: #64748b;
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.btn-action {
+  display: inline-block;
+  margin-top: 1.5rem;
+  padding: 0.75rem 1.5rem;
+  background-color: var(--primary);
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: 600;
+  transition: background-color 0.2s ease;
+}
+
+.btn-action:hover {
+  background-color: var(--primary-hover);
+}
