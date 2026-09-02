@@ -56,22 +56,9 @@ class AgeRule extends ValidationRule {
     validate(value) {
         const age = parseInt(value, 10);
         return {
-            isValid: !isNaN(age) && age >= 1 && age <= 100,
-            message: 'Ingresa una edad válida (1-100).'
+            isValid: !isNaN(age) && age >= 1 && age <= 120,
+            message: 'Ingresa una edad válida.'
         };
-    }
-}
-
-class PasswordRule extends ValidationRule {
-    validate(value) {
-        const str = (value || '').toString();
-        if (str.length < 8) {
-            return { isValid: false, message: 'Debe tener al menos 8 caracteres.' };
-        }
-        if (!/\d/.test(str) || !/[\W_]/.test(str)) {
-            return { isValid: false, message: 'Debe incluir al menos un número y un carácter especial.' };
-        }
-        return { isValid: true, message: '' };
     }
 }
 
@@ -82,7 +69,7 @@ class FormValidator {
             names: [new RequiredRule()],
             last_names: [new RequiredRule()],
             age: [new RequiredRule(), new AgeRule()],
-            password: [new RequiredRule(), new PasswordRule()]
+            password: [new RequiredRule(), new MinLengthRule(6)]
         };
     }
 
