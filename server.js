@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const app = express();
@@ -37,9 +38,9 @@ const pool = mysql.createPool({
 })();
 
 app.post('/api/register', async (req, res) => {
-    const { email, names, last_names, age } = req.body;
+    const { email, names, last_names, age, password } = req.body;
 
-    if (!email || !names || !last_names || !age) {
+    if (!email || !names || !last_names || !age || !password) {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
 
@@ -51,11 +52,13 @@ app.post('/api/register', async (req, res) => {
             return res.status(409).json({ error: 'El correo electrónico ya existe en la base de datos.' });
         }
 
+        const hashedPassword = await bcrypt.hash(password, 10);
+
         const sql = `
-            INSERT INTO users (email, names, last_names, age, status, verification_token)
-            VALUES (?, ?, ?, ?, 'pendiente', ?)
+            INSERT INTO users (email, names, last_names, age, password, status, verification_token)
+            VALUES (?, ?, ?, ?, ?, 'pendiente', ?)
         `;
-        await pool.execute(sql, [email, names, last_names, parseInt(age, 10), verificationToken]);
+        await pool.execute(sql, [email, names, last_names, parseInt(age, 10), hashedPassword, verificationToken]);
 
         return res.status(201).json({
             message: 'Usuario registrado correctamente.',
