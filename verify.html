@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Verificando Correo</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <main class="container">
@@ -20,44 +19,40 @@
   </main>
 
   <script>
-    const SUPABASE_URL = 'https://eotxudwqkkuuvqcwfwae.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_SHrtbjoYz8UG8jjyafY0yQ_n_VOZHCC';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
     async function verifyUserEmail() {
       const params = new URLSearchParams(window.location.search);
       const email = params.get('email');
+      const token = params.get('token');
 
       const titleEl = document.getElementById('status-title');
       const descEl = document.getElementById('status-desc');
       const iconEl = document.getElementById('status-icon');
       const btnEl = document.getElementById('action-btn');
 
-      if (!email) {
+      if (!email && !token) {
         iconEl.textContent = '⚠️';
         titleEl.textContent = 'Enlace inválido';
-        descEl.textContent = 'No se encontró la dirección de correo a verificar.';
+        descEl.textContent = 'No se encontró el parámetro de verificación.';
         return;
       }
 
       try {
-        // Actualiza el status en la base de datos
-        const { data, error } = await supabase
-          .from('users')
-          .update({ status: 'verificado' })
-          .eq('email', email)
-          .select();
+        const query = token ? `token=${encodeURIComponent(token)}` : `email=${encodeURIComponent(email)}`;
+        const response = await fetch(`/api/verify?${query}`);
+        const result = await response.json();
 
-        if (error) throw error;
+        if (!response.ok) {
+          throw new Error(result.error || 'Error al verificar la cuenta.');
+        }
 
         iconEl.textContent = '✅';
         titleEl.textContent = '¡Correo Confirmado!';
-        descEl.textContent = `La cuenta asociada a ${email} ha sido verificada con éxito.`;
+        descEl.textContent = `La cuenta asociada a ${email || 'tu correo'} ha sido verificada con éxito en Aiven.`;
       } catch (err) {
         console.error(err);
         iconEl.textContent = '❌';
         titleEl.textContent = 'Error de confirmación';
-        descEl.textContent = 'No se pudo actualizar el estado de tu cuenta.';
+        descEl.textContent = err.message || 'No se pudo actualizar el estado de tu cuenta.';
       } finally {
         btnEl.style.display = 'inline-block';
       }

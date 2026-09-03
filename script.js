@@ -1,23 +1,7 @@
-const SUPABASE_URL = 'https://eotxudwqkkuuvqcwfwae.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_SHrtbjoYz8UG8jjyafY0yQ_n_VOZHCC';
-
-// Credenciales EmailJS
 const EMAILJS_SERVICE_ID = 'service_hvy79hk';
 const EMAILJS_TEMPLATE_ID = 'template_lbbppyk';
 const EMAILJS_PUBLIC_KEY = 'EUdymDDXovlpF4AkZ';
 
-let supabaseClient = null;
-function getSupabaseClient() {
-    if (!supabaseClient) {
-        if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
-            throw new Error('La librería de Supabase no está cargada. Revisa tu conexión a internet.');
-        }
-        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    }
-    return supabaseClient;
-}
-
-// VALIDACIONES 
 class ValidationRule {
     validate(value) { return { isValid: true, message: '' }; }
 }
@@ -52,12 +36,22 @@ class MinLengthRule extends ValidationRule {
     }
 }
 
+class SpecialCharRule extends ValidationRule {
+    validate(value) {
+        const regex = /[^a-zA-Z0-9]/;
+        return {
+            isValid: regex.test(value),
+            message: 'La contraseña debe contener al menos un carácter especial (ej. !@#$%^&*).'
+        };
+    }
+}
+
 class AgeRule extends ValidationRule {
     validate(value) {
         const age = parseInt(value, 10);
         return {
             isValid: !isNaN(age) && age >= 1 && age <= 120,
-            message: 'Ingresa una edad válida.'
+            message: 'Ingresa una edad válida (1 a 120 años).'
         };
     }
 }
@@ -69,7 +63,7 @@ class FormValidator {
             names: [new RequiredRule()],
             last_names: [new RequiredRule()],
             age: [new RequiredRule(), new AgeRule()],
-            password: [new RequiredRule(), new MinLengthRule(6)]
+            password: [new RequiredRule(), new MinLengthRule(6), new SpecialCharRule()]
         };
     }
 
@@ -97,7 +91,6 @@ class FormValidator {
     }
 }
 
-// SERVICIO DE CORREO 
 class EmailService {
     async sendNotification(userData) {
         throw new Error("Método 'sendNotification' debe ser implementado.");
@@ -112,9 +105,12 @@ class EmailJSService extends EmailService {
         this.publicKey = publicKey;
     }
 
-    async sendNotification({ email, names, last_names }) {
+    async sendNotification({ email, names, last_names, token }) {
         const basePath = window.location.pathname.replace('index.html', '');
-        const confirmationUrl = `${window.location.origin}${basePath}verify.html?email=${encodeURIComponent(email)}`;
+        const params = new URLSearchParams({ email });
+        if (token) params.set('token', token);
+
+        const confirmationUrl = `${window.location.origin}${basePath}verify.html?${params.toString()}`;
 
         const payload = {
             service_id: this.serviceId,
@@ -143,53 +139,34 @@ class EmailJSService extends EmailService {
     }
 }
 
-// REPOSITORIO DE DATOS 
 class AuthRepository {
     async register(userData) {
         throw new Error("Método 'register' debe ser implementado.");
     }
 }
 
-class SupabaseAuthRepository extends AuthRepository {
-    async register({ email, password, names, last_names, age }) {
-        const client = getSupabaseClient();
-
-        const { data, error } = await client.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-                data: {
-                    names: names,
-                    last_names: last_names,
-                    age: parseInt(age, 10)
-                }
-            }
+class AivenAuthRepository extends AuthRepository {
+    async register({ email, names, last_names, age, password }) {
+        const response = await fetch('/api/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, names, last_names, age, password })
         });
 
-        if (error) {
+        const resData = await response.json();
+
+        if (!response.ok) {
+            const error = new Error(resData.error || 'Error al registrar el usuario.');
+            error.status = response.status;
             throw error;
         }
 
-        try {
-            await client.from('users').insert([
-                {
-                    email: email,
-                    names: names,
-                    last_names: last_names,
-                    age: parseInt(age, 10),
-                    password: password,
-                    status: 'pendiente'
-                }
-            ]);
-        } catch (dbErr) {
-            console.warn('Inserción en public.users gestionada o ignorada:', dbErr);
-        }
-
-        return data;
+        return resData;
     }
 }
 
-// CONTROLADOR DEL FORMULARIO 
 class RegistrationForm {
     constructor(formElement, validator, authRepository, emailService) {
         this.form = formElement;
@@ -204,6 +181,29 @@ class RegistrationForm {
 
     init() {
         this.form.addEventListener('submit', (e) => this.handleSubmit(e));
+
+        ['email', 'names', 'last_names', 'age', 'password'].forEach(field => {
+            const inputEl = document.getElementById(field);
+            if (inputEl) {
+                inputEl.addEventListener('blur', () => this.validateSingleField(field));
+                inputEl.addEventListener('input', () => {
+                    const errorEl = document.getElementById(`${field}-error`);
+                    if (errorEl && errorEl.textContent) {
+                        this.validateSingleField(field);
+                    }
+                });
+            }
+        });
+    }
+
+    validateSingleField(field) {
+        const value = document.getElementById(field)?.value || '';
+        const result = this.validator.validateField(field, value);
+        const errorEl = document.getElementById(`${field}-error`);
+        if (errorEl) {
+            errorEl.textContent = result.isValid ? '' : result.message;
+        }
+        return result.isValid;
     }
 
     getFormData() {
@@ -245,14 +245,17 @@ class RegistrationForm {
         this.submitBtn.textContent = 'Registrando...';
 
         try {
-            await this.authRepository.register(data);
+            const regResult = await this.authRepository.register(data);
 
             try {
-                await this.emailService.sendNotification(data);
+                await this.emailService.sendNotification({
+                    ...data,
+                    token: regResult.verificationToken
+                });
                 this.statusMsg.textContent = `¡Registro iniciado! Se envió un correo a ${data.email} con el enlace para verificar tu cuenta.`;
             } catch (mailErr) {
                 console.warn('Error al enviar con EmailJS:', mailErr);
-                this.statusMsg.textContent = 'Usuario registrado, pero ocurrió un problema enviando el correo.';
+                this.statusMsg.textContent = 'Usuario registrado en la base de datos, pero ocurrió un problema enviando el correo de verificación.';
             }
 
             this.statusMsg.classList.add('success');
@@ -260,14 +263,12 @@ class RegistrationForm {
         } catch (err) {
             console.error('Error al registrar:', err);
 
-            if (err.code === '23505' || (err.message && (err.message.includes('unique') || err.message.includes('already registered') || err.message.includes('already exists')))) {
+            if (err.status === 409 || (err.message && (err.message.includes('existe') || err.message.includes('already registered')))) {
                 this.statusMsg.textContent = 'El correo electrónico ya existe en la base de datos.';
                 const emailErrorEl = document.getElementById('email-error');
                 if (emailErrorEl) emailErrorEl.textContent = 'Este correo ya está registrado.';
-            } else if (err.code === '42501' || (err.message && err.message.includes('row-level security'))) {
-                this.statusMsg.textContent = 'Error de permisos RLS en Supabase.';
             } else {
-                this.statusMsg.textContent = err.message || 'Error al registrar usuario.';
+                this.statusMsg.textContent = err.message || 'Error al registrar usuario en la base de datos.';
             }
 
             this.statusMsg.classList.add('error');
@@ -278,11 +279,10 @@ class RegistrationForm {
     }
 }
 
-// INICIALIZACIÓN
 document.addEventListener('DOMContentLoaded', () => {
     const formElement = document.getElementById('register-form');
     const validator = new FormValidator();
-    const authRepository = new SupabaseAuthRepository();
+    const authRepository = new AivenAuthRepository();
     const emailService = new EmailJSService(
         EMAILJS_SERVICE_ID,
         EMAILJS_TEMPLATE_ID,
@@ -291,15 +291,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     new RegistrationForm(formElement, validator, authRepository, emailService);
 
-    // Toggle de contraseña
     const togglePasswordBtn = document.getElementById('toggle-password');
     const passwordInput = document.getElementById('password');
 
     if (togglePasswordBtn && passwordInput) {
         togglePasswordBtn.addEventListener('click', () => {
-            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-            passwordInput.setAttribute('type', type);
-            togglePasswordBtn.textContent = type === 'password' ? '🙈' : '🐵';
+            const isPassword = passwordInput.getAttribute('type') === 'password';
+            const newType = isPassword ? 'text' : 'password';
+            passwordInput.setAttribute('type', newType);
+            togglePasswordBtn.textContent = isPassword ? '👁️' : '🙈';
+            togglePasswordBtn.setAttribute('aria-label', isPassword ? 'Ocultar contraseña' : 'Mostrar contraseña');
         });
     }
 });
